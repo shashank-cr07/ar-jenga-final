@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["vercel-link", "https://localhost:5173"], // Allow Vite app
+    origin: ["https://arjengaupdated1.vercel.app/", "https://localhost:5173"], // Allow Vite app
     methods: ["GET", "POST"],
   },
 });
