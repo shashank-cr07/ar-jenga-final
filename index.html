@@ -157,7 +157,10 @@
 		let roomId; // Declare roomId globally
 		
 		document.getElementById('start-game').disabled=true;
-		const socket = io('http://localhost:3000'); // Replace with your deployed server URL
+
+		const socket = io("http://localhost:3000/"); // Update after deployment
+		
+		 // Replace with your deployed server URL
 
 		document.getElementById('create-room-button').addEventListener('click', () => {
 			if (!window.id) {
