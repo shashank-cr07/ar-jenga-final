@@ -1,15 +1,32 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+import cors from 'cors';
 
 const app = express();
 const server = http.createServer(app);
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+
 const io = new Server(server, {
-  cors: {
-    origin: ["https://arjengaupdated1.vercel.app/", "https://localhost:5173"], // Allow Vite app
+  cors: { 
+    origin: [
+    "https://arjengaupdated1.vercel.app", // Remove trailing slash
+      "http://localhost:5173"
+    ],
     methods: ["GET", "POST"],
-  },
+    credentials: true,
+    allowedHeaders: ["my-custom-header"],
+  }
 });
+
+// Add CORS middleware for Express
+app.use(cors({
+  origin: [
+    "https://arjengaupdated1.vercel.app",
+    "http://localhost:5173"
+  ],
+  credentials: true
+}));
 
 let rooms = new Map(); // Store rooms
 
