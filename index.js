@@ -10,12 +10,13 @@ let hitTestSource = null;
 let hitTestSourceRequested = false;
 let blockTexture = null;
 let startButton;
-
 let gameStarted = false;
 let lastCollapseCheckTime = 0;
 let basePosition;
 let isReady = false;
 let canMove = false;
+let roomId = null;
+
 // Emit readiness to the server
 
 
@@ -24,47 +25,65 @@ const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
 
 // Connect to the WebSocket server
 // Connect to the WebSocket server
-const socket = io('https://arjengaupdated1.vercel.app/api/socket');
+const socket = io('http://localhost:3000'); 
+
 function notifyReady() {
-  socket.emit('player-ready');
+  if (!roomId) {
+    console.error('Room ID is not set. Cannot notify readiness.');
+    return;
+  }
+  console.log(roomId);
+  socket.emit('player-ready', { roomId });
 }
+
 // Handle connection
+let id = null;
+
 socket.on('connect', () => {
   console.log('Connected to the server with ID:', socket.id);
+  id = socket.id;
+  window.id = id; // Assign to window.id after the socket is connected
+  console.log('Window ID:', window.id); // Verify the assignment
 });
 
+
 // Handle game start
-socket.on('start-game', (initialGameState) => {
+socket.on('start-game', ({ initialGameState, roomId: receivedRoomId }) => {
+  if (roomId !== receivedRoomId) return; // Ignore if not for the current room
+
   console.log('Game started with initial state:', initialGameState);
   gameStarted = true;
   startButton.visible = false;
   reticle.visible = false;
 
   // Sync the initial game state
-
 });
+
 let res = false;
-socket.on('game-result', ({ message }) => {
-  if (!res)
-    alert(message); // Display the result to the player
+socket.on('game-result', ({ message, roomId: receivedRoomId }) => {
+  if (roomId !== receivedRoomId) return; // Ignore if not for the current room
+
+  if (!res) alert(message); // Display the result to the player
   res = true;
   console.log(message); // Log the result for debugging purposes
 });
 
 // Listen for block updates from the server
-socket.on('update-block', (relativeChange) => {
+socket.on('update-block', ({ blockData, roomId: receivedRoomId }) => {
+  if (roomId !== receivedRoomId) return; // Ignore updates for other rooms
+
   if (!basePosition) {
-    console.warn("Base position not set. Unable to apply block updates.");
+    console.warn('Base position not set. Unable to apply block updates.');
     return;
   }
 
-  const blockIndex = relativeChange.id;
+  const blockIndex = blockData.id;
 
   // Calculate the new position
   const newPosition = {
-    x: basePosition.x + relativeChange.relativePosition.x,
-    y: basePosition.y + relativeChange.relativePosition.y,
-    z: basePosition.z + relativeChange.relativePosition.z,
+    x: basePosition.x + blockData.relativePosition.x,
+    y: basePosition.y + blockData.relativePosition.y,
+    z: basePosition.z + blockData.relativePosition.z,
   };
 
   // Update the block
@@ -72,35 +91,46 @@ socket.on('update-block', (relativeChange) => {
     const blockBody = cubeBodies[blockIndex];
     blockBody.position.set(newPosition.x, newPosition.y, newPosition.z);
     blockBody.quaternion.set(
-      relativeChange.quaternion.x,
-      relativeChange.quaternion.y,
-      relativeChange.quaternion.z,
-      relativeChange.quaternion.w
+      blockData.quaternion.x,
+      blockData.quaternion.y,
+      blockData.quaternion.z,
+      blockData.quaternion.w
     );
 
     cubes[blockIndex].position.copy(blockBody.position);
     cubes[blockIndex].quaternion.copy(blockBody.quaternion);
+    console.log(`Block with ID ${blockIndex} updated in room ${receivedRoomId}`);
   } else {
     console.warn(`Block with ID ${blockIndex} does not exist.`);
   }
 });
 
-socket.on('turn-update', ({ currentTurn }) => {
-  if (socket.id === currentTurn) {
+
+socket.on('turn-update', ({ currentTurn, roomId: receivedRoomId }) => {
+  console.log("gay",currentTurn);
+  if (roomId !== receivedRoomId) {
+    console.log(`Turn update ignored: Not for this room (received: ${receivedRoomId}, current: ${roomId})`);
+    return; // Ignore if not for the current room
+  }
+
+  if (id === currentTurn) {
     // Allow the current player to move
     canMove = true;
-    if (!res)
-      alert('Your turn!');
+    if (!res) alert('Your turn!');
   } else {
     // Disable movement for non-current players
     canMove = false;
-    if (!res)
-      alert('Waiting for the other player...');
+    if (!res) alert('Waiting for the other player...');
   }
-  if (res == true) {
-    canMove = true;
+
+  if (res) {
+    canMove = true; // Reset move permission if res is true
   }
+
+  console.log(`Turn updated: Current turn for player ${currentTurn} in room ${roomId}`);
 });
+
+
 
 const cubes = [];
 const cubeBodies = [];
@@ -145,15 +175,25 @@ function notifyBlockMovement(blockBody, blockIndex) {
     },
   };
 
-  socket.emit('update-block', blockData);
+  socket.emit('update-block', { roomId, blockData });
 }
 
 
 document.addEventListener('DOMContentLoaded', () => {
+
   const startButton1 = document.getElementById('start-game');
 
   startButton1.addEventListener('click',
     () => {
+
+      roomId=window.roomId;
+
+      // Ensure roomId is available
+      if (!roomId) {
+          console.error('Room ID is not available. Ensure you have joined or created a room.');
+      } else {
+          console.log(`Using Room ID: ${roomId}`);
+      }
 
       init();
       animate();
@@ -394,24 +434,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isTowerCollapsed()) {
           // Notify the server that the tower has collapsed with the player's ID
           socket.emit('tower-collapsed', {
-            playerId: socket.id,
-            message: 'The tower has collapsed!',
+            roomId, 
+            playerId: id, 
           });
 
           console.log("Tower has collapsed");
         }
-      }
-
-      function enablePhysicsTemporarily(duration = 1000) {
-        // Enable physics
-        physicsEnabled = true;
-        console.log('Physics enabled.');
-
-        // Set a timeout to disable physics after the specified duration
-        setTimeout(() => {
-          physicsEnabled = false;
-          console.log('Physics disabled.');
-        }, duration);
       }
       function highlightBlock(block) {
         if (block) {
@@ -687,9 +715,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log('Tower placed at:', position);
         socket.emit('set-base-position', {
-          x: position.x,
-          y: position.y,
-          z: position.z,
+          roomId, 
+          position: {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+          },
         });
         basePosition = position;
       }
