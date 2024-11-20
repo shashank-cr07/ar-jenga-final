@@ -25,8 +25,9 @@ const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
 
 // Connect to the WebSocket server
 // Connect to the WebSocket server
-const socket = io('http://localhost:3000'); 
 
+
+  const socket = io("http://localhost:3000/");
 function notifyReady() {
   if (!roomId) {
     console.error('Room ID is not set. Cannot notify readiness.');
@@ -60,12 +61,15 @@ socket.on('start-game', ({ initialGameState, roomId: receivedRoomId }) => {
 });
 
 let res = false;
-socket.on('game-result', ({ message, roomId: receivedRoomId }) => {
+socket.on('game-result', ({ message, roomId: receivedRoomId, playerId }) => {
   if (roomId !== receivedRoomId) return; // Ignore if not for the current room
 
-  if (!res) alert(message); // Display the result to the player
-  res = true;
-  console.log(message); // Log the result for debugging purposes
+  if (!res) {
+    // Display the result with the player ID
+    alert(`Result: ${message}`);
+    res = true;
+  }
+  console.log(`Room: ${receivedRoomId}, Player ID: ${playerId}, Message: ${message}`); // Log for debugging
 });
 
 // Listen for block updates from the server
