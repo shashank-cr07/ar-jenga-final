@@ -6,54 +6,150 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "https://localhost:5173", // Allow Vite app
+    origin: ["vercel-link", "https://localhost:5173"], // Allow Vite app
     methods: ["GET", "POST"],
   },
 });
 
-let players = {}; // Track connected players and their readiness
-let gameState = {}; // Track game state (e.g., block positions)
+let rooms = new Map(); // Store rooms
+
+// Room class to manage players and game state in a room
+class Room {
+  constructor(roomId) {
+    this.roomId = roomId;
+    this.players = [];
+    this.gameState = {}; // Each room maintains its own game state
+  }
+
+  addPlayer(socket, playerData) {
+    this.players.push({ socket, playerData });
+  }
+
+  isFull() {
+    return this.players.length >= 2; // Max 3 players per room
+  }
+
+  getState() {
+    return {
+      roomId: this.roomId,
+      players: this.players.map((p) => p.playerData),
+      gameState: this.gameState,
+    };
+  }
+
+  updateGameState(blockData) {
+    this.gameState[blockData.id] = blockData; // Update the room's game state
+  }
+}
 
 // Handle WebSocket connections
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
-  // Initialize player data
-  players[socket.id] = {
-    basePosition: null, // Initial tower position
-    ready: false,
-  };
+  // Create Room
+    // Handle creating a new room
+    socket.on('createRoom', (playerData) => {
+      const roomId = Math.random().toString(36).substring(7); // Generate a random room ID
+      const room = new Room(roomId);
+      room.addPlayer(socket, playerData);
+      rooms.set(roomId, room);
+  
+      console.log('Created room:', roomId);
+      console.log('Active rooms:', Array.from(rooms.keys()));
+  
+      socket.join(roomId);
+      console.log(room);
+      socket.emit('roomCreated', roomId); // Send room ID back to the client
+    });
 
-  // Listen for base position
-  socket.on('set-base-position', (position) => {
-    players[socket.id].basePosition = position;
-    console.log(`Player ${socket.id} base position set to, position`);
+  // Join Room
+  socket.on('joinRoom', ({ roomId, playerData }) => {
+    const room = rooms.get(roomId);
+
+    if (!room) {
+      socket.emit('roomError', 'Room not found');
+      return;
+    }
+
+    if (room.isFull()) {
+      socket.emit('roomError', 'Room is full');
+      return;
+    }
+
+    console.log('Joining room:', roomId);
+    room.addPlayer(socket, playerData);
+    socket.join(roomId);
+    socket.emit('joinedRoom', { roomId, state: room.getState() });
+
+    // Notify other players in the room
+    socket.to(roomId).emit('playerJoined', { playerId: socket.id, playerData });
   });
 
-  // Listen for readiness
-  socket.on('player-ready', () => {
-    players[socket.id].ready = true;
-    console.log(`Player ${socket.id} is ready`);
+  // Set Base Position
+  socket.on('set-base-position', ({ roomId, position }) => {
+    const room = rooms.get(roomId);
 
-    // Check if all players are ready
-    const allReady = Object.values(players).every((player) => player.ready);
-    if (allReady) {
-      io.emit('start-game', gameState); // Notify all players to start the game
-      console.log('All players are ready. Starting the game.');
+    if (!room) {
+      socket.emit('roomError', 'Room not found');
+      return;
+    }
 
-      // Assign the first turn to the first player
-      const playerIds = Object.keys(players);
-      if (playerIds.length > 0) {
-        const firstPlayerId = playerIds[0];
-        io.emit('turn-update', { currentTurn: firstPlayerId });
-        console.log(`First turn assigned to player: ${firstPlayerId}`);
-      }
+    const player = room.players.find((p) => p.playerData.name === socket.id);
+    console.log("In set-base");
+    console.log(position);
+    if (player) {
+      player.playerData.basePosition = position;
+      console.log(`Player ${socket.id} base position set to`, position);
     }
   });
 
-  // Listen for block movement
-  socket.on('update-block', (data) => {
-    const playerBasePosition = players[socket.id]?.basePosition;
+  // Player Ready
+  socket.on('player-ready', ({ roomId }) => {
+    const room = rooms.get(roomId);
+  
+    if (!room) {
+      socket.emit('roomError', 'Room not found');
+      return;
+    }
+  
+    // Find the player by matching their name with socket.id
+    const player = room.players.find((p) => p.playerData.name === socket.id);
+    if (player) {
+      player.playerData.ready = true;
+      console.log(`Player ${socket.id} is ready in room ${roomId}`);
+    } else {
+      console.warn(`Player not found in room ${roomId} for socket ${socket.id}`);
+    }
+  
+    // Check if all players in the room are ready
+    const allReady = room.players.every((p) => p.playerData.ready);
+    if (allReady) {
+      io.to(roomId).emit('start-game', room.getState().gameState);
+      console.log(`All players are ready in room ${roomId}. Starting the game.`);
+  
+      // Assign the first turn to the first player
+      const firstPlayerId = room.players[0].playerData.name; // Use playerData.name for turn tracking
+      io.emit('turn-update', { currentTurn: firstPlayerId, roomId });
+      console.log(`First turn assigned to player: ${firstPlayerId} in room ${roomId}`);
+    }
+  });
+  
+  // Update for block movement and turn rotation
+  socket.on('update-block', ({ roomId, blockData }) => {
+    const room = rooms.get(roomId);
+  
+    if (!room) {
+      console.warn(`Room not found for roomId ${roomId}`);
+      return;
+    }
+  
+    const player = room.players.find((p) => p.playerData.name === socket.id);
+    if (!player) {
+      console.warn(`Player with socket id ${socket.id} not found in room ${roomId}`);
+      return;
+    }
+  
+    const playerBasePosition = player.playerData.basePosition;
   
     if (!playerBasePosition) {
       console.warn(`Player ${socket.id} has no base position set.`);
@@ -62,62 +158,92 @@ io.on('connection', (socket) => {
   
     // Calculate the relative movement
     const relativeChange = {
-      id: data.id,
+      id: blockData.id,
       relativePosition: {
-        x: data.position.x - playerBasePosition.x,
-        y: data.position.y - playerBasePosition.y,
-        z: data.position.z - playerBasePosition.z,
+        x: blockData.position.x - playerBasePosition.x,
+        y: blockData.position.y - playerBasePosition.y,
+        z: blockData.position.z - playerBasePosition.z,
       },
-      quaternion: data.quaternion,
+      quaternion: blockData.quaternion,
     };
   
-    // Update the game state with absolute position for tracking
-    gameState[data.id] = {
-      id: data.id,
-      position: data.position,
-      quaternion: data.quaternion,
-    };
-  
-    // Broadcast the relative change to all other clients
-    socket.broadcast.emit('update-block', relativeChange);
+    // Broadcast the relative change to all other clients in the same room
+    io.emit('update-block', { roomId, blockData: relativeChange });
   
     // Rotate turn to the next player
-    const playerIds = Object.keys(players);
-    const currentIndex = playerIds.indexOf(socket.id);
-  
-    if (currentIndex >= 0) {
-      const nextPlayerId = playerIds[(currentIndex + 1) % playerIds.length]; // Next player's ID
-      io.emit('turn-update', { currentTurn: nextPlayerId });
-      console.log(`Turn updated: It's now ${nextPlayerId}'s turn.`);
+    const currentPlayerIndex = room.players.findIndex((p) => p.playerData.name === socket.id);
+    if (currentPlayerIndex !== -1) {
+      const nextPlayerIndex = (currentPlayerIndex + 1) % room.players.length;
+      const nextPlayerId = room.players[nextPlayerIndex].playerData.name;
+      io.emit('turn-update', { currentTurn: nextPlayerId, roomId });
+      console.log(`Turn updated: Current turn for player ${nextPlayerId} in room ${roomId}`);
     }
   });
   
-  socket.on('tower-collapsed', ({ playerId, message }) => {
-    console.log(`Player ${playerId} caused the tower to collapse.`);
+  
+  
 
+  // Tower Collapsed
+  socket.on('tower-collapsed', ({ roomId, playerId }) => {
+    const room = rooms.get(roomId);
+  
+    if (!room) {
+      socket.emit('roomError', 'Room not found');
+      return;
+    }
+  
+    console.log(`Player ${playerId} caused the tower to collapse in room ${roomId}`);
+  
     // Notify the player who caused the collapse that they lost
-    io.to(playerId).emit('game-result', {
+    io.emit('game-result', {
       message: 'You lost! You caused the tower to collapse.',
+      roomId,
     });
-
-    // Notify all other players that they won
-    for (const [id] of Object.entries(players)) {
-      if (id !== playerId) {
-        io.to(id).emit('game-result', {
+  
+    // Notify all other players in the room that they won
+    room.players.forEach((p) => {
+      if (p.socket.id !== playerId) {
+        io.emit('game-result', {
           message: 'You won! The other player caused the tower to collapse.',
+          roomId,
         });
+      }
+    });
+  });
+  
+
+  // Player Disconnection
+  socket.on('disconnect', () => {
+    console.log('Player disconnected:', socket.id);
+
+    // Find the room and remove the player
+    let roomId;
+    for (const [id, room] of rooms.entries()) {
+      const index = room.players.findIndex((p) => p.socket.id === socket.id);
+      if (index !== -1) {
+        roomId = id;
+        room.players.splice(index, 1);
+        break;
+      }
+    }
+
+    if (roomId) {
+      console.log(`Player ${socket.id} left room ${roomId}`);
+
+      // If the room is empty, delete it
+      if (rooms.get(roomId).players.length === 0) {
+        rooms.delete(roomId);
+        console.log(`Room ${roomId} has been deleted`);
+      } else {
+        // Notify remaining players in the room
+        socket.to(roomId).emit('playerDisconnected', socket.id);
       }
     }
   });
-  // Handle player disconnection
-  socket.on('disconnect', () => {
-    console.log('Player disconnected:', socket.id);
-    delete players[socket.id];
-    io.emit('player-disconnected', socket.id);
-  });
 });
 
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 3000;
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 });
