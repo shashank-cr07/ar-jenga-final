@@ -186,7 +186,6 @@ io.on('connection', (socket) => {
   // Tower Collapsed
   socket.on('tower-collapsed', ({ roomId, playerId }) => {
     const room = rooms.get(roomId);
-  
     if (!room) {
       socket.emit('roomError', 'Room not found');
       return;
@@ -195,9 +194,10 @@ io.on('connection', (socket) => {
     console.log(`Player ${playerId} caused the tower to collapse in room ${roomId}`);
   
     // Notify the player who caused the collapse that they lost
-    io.emit('game-result', {
+    io.to(playerId).emit('game-result', {
       message: 'You lost! You caused the tower to collapse.',
       roomId,
+      playerId, // Include the playerId who lost
     });
   
     // Notify all other players in the room that they won
