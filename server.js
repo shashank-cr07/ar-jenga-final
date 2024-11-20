@@ -4,7 +4,8 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 
 const app = express();
-const server = http.createServer(app);
+const server = createServer(app);
+
 const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
 
 const io = new Server(server, {
