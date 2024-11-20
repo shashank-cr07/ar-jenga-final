@@ -1,4 +1,15 @@
 {
+  "name": "lego-simulator-server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server.js",
+    "start": "node server.js"
+  },
   "devDependencies": {
     "vite": "^4.3.0",
     "vite-plugin-mkcert": "^1.17.6"
@@ -13,16 +24,12 @@
     "socket.io-client": "^4.8.1",
     "three": "^0.169.0"
   },
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "server": "node server.js",
-    "start": "node server.js"
-  },
   "vercel-build": {
     "vite": {
       "output": "dist"
     }
   }
 }
+
+
+
