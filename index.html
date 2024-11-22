@@ -112,7 +112,7 @@
 			<img id="title-image" src="./images/title.png" alt="Jenga Title">
 		</div>
 		<div id="button-container">
-			<button id="start-game">Allow AR</button>
+			<button id="start-game">Start AR</button>
 		</div>
 
 		<!-- Multiplayer Section -->
@@ -158,7 +158,7 @@
 		
 		document.getElementById('start-game').disabled=true;
 
-		const socket = io("http://localhost:3000/"); // Update after deployment
+		const socket = io("https://ar-jenga-final.onrender.com"); // Update after deployment
 		
 		 // Replace with your deployed server URL
 
