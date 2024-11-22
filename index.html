@@ -5,15 +5,29 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Jenga AR/VR Game</title>
-	<link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="style.css"> 
 	<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 
-
 	<style>
+		#tower-height-container button {
+			padding: 5px 10px;
+			/* Smaller padding for reduced size */
+			border-radius: 4px;
+			background-color: #4CAF50;
+			color: white;
+			border: none;
+			cursor: pointer;
+			font-size: 12px;
+			/* Reduced font size */
+			height: auto;
+			/* Adjust height automatically */
+			width: auto;
+			/* Adjust width automatically */
+		}
+
 		body {
 			background-color: black;
 			color: white;
-			/* Set text color to white */
 			font-family: Arial, sans-serif;
 			margin: 0;
 		}
@@ -25,7 +39,6 @@
 
 		#title-container {
 			margin-top: 10px;
-			/* Push the image up */
 		}
 
 		#title-image {
@@ -100,6 +113,30 @@
 			opacity: 0.7;
 			cursor: not-allowed;
 		}
+
+		#tower-height-container {
+			margin: 20px auto;
+			text-align: center;
+		}
+
+		#tower-height-container input {
+			width: 50px;
+			padding: 5px;
+			border-radius: 5px;
+			border: 1px solid #ccc;
+			text-align: center;
+		}
+
+		#tower-height-container button {
+			margin-left: 10px;
+			padding: 10px 15px;
+			border-radius: 5px;
+			background-color: #4CAF50;
+			color: white;
+			border: none;
+			cursor: pointer;
+			font-size: 14px;
+		}
 	</style>
 </head>
 
@@ -115,6 +152,14 @@
 			<button id="start-game">Start AR</button>
 		</div>
 
+		<!-- Tower Height Section -->
+		<div id="tower-height-container">
+			<label for="tower-height">Tower Height:</label>
+			<input type="number" id="tower-height" min="5" max="15" value="10">
+			<button id="set-tower-height-button">Set</button>
+		</div>
+		
+
 		<!-- Multiplayer Section -->
 		<div id="multiplayer-container">
 			<input type="text" id="room-id" placeholder="Enter Room ID">
@@ -127,7 +172,8 @@
 
 		<!-- Instructions Section -->
 		<div id="text-box-container">
-			<p>Click ready only after your friend has joined or else its a singlePlayer game!!<p>
+			<p>Click ready only after your friend has joined or else its a singlePlayer game!!
+			<p>
 			<p>Ensure you click ready only after your model has loaded. (And your friends model as well)</p>
 			<p>When it's not your turn, you will not be able to move your blocks.</p>
 			<p>Once you choose a block, you are forced to move it!(So click wisely!!)</p>
@@ -146,7 +192,7 @@
 		</div>
 	</div>
 
-	<!-- Audio element for sound effect -->
+
 
 	<div id="game-container" style="display:none;"></div>
 	<div id="exit-container" style="display: none;">
@@ -154,13 +200,11 @@
 	</div>
 
 	<script>
-		let roomId; // Declare roomId globally
-		
-		document.getElementById('start-game').disabled=true;
+		let roomId;
+		window.baseHeight=10;
+		document.getElementById('start-game').disabled = true;
 
-		const socket = io("https://ar-jenga-final.onrender.com"); // Update after deployment
-		
-		 // Replace with your deployed server URL
+		const socket = io("https://ar-jenga-final.onrender.com");   //first deploy the project on render and take the link and add here
 
 		document.getElementById('create-room-button').addEventListener('click', () => {
 			if (!window.id) {
@@ -169,44 +213,38 @@
 			}
 			document.getElementById('create-room-button').disabled = true;
 			document.getElementById('join-room-button').disabled = true;
-			document.getElementById('start-game').disabled=false;
+			document.getElementById('start-game').disabled = false;
 
 			const playerData = { name: `${window.id}` };
-			console.log('Creating room with Playssser ID:', window.id); // For debugging
-			socket.emit('createRoom', playerData);
-
+			socket.emit('createRoom', playerData);  //Room id generation and joining 
 		});
 
-
+		//joining the created room
 		socket.on('roomCreated', (id) => {
-			roomId = id; // Store roomId globally
+			roomId = id;
 			document.getElementById('room-status').innerText = `Room Created and joined! Room ID: ${id}`;
 			document.getElementById('room-id').value = id;
 
-			// Pass roomId to index.js
-			window.roomId = roomId;
-			console.log(roomId);
-			console.log(window.roomId);
+			window.roomId = roomId; //storing it on the window
 		});
 
-
+		//to join a existing room
 		document.getElementById('join-room-button').addEventListener('click', () => {
 			const enteredRoomId = document.getElementById('room-id').value;
 			if (!enteredRoomId) {
 				document.getElementById('room-status').innerText = 'Please enter a Room ID to join.';
 				return;
 			}
-			roomId = enteredRoomId; // Store roomId globally
-			const playerData = { name: `${window.id}` }; // Replace with dynamic player data if needed
+			roomId = enteredRoomId;
+			const playerData = { name: `${window.id}` };
 			socket.emit('joinRoom', { roomId, playerData });
 			document.getElementById('create-room-button').disabled = true;
 			document.getElementById('join-room-button').disabled = true;
-			document.getElementById('start-game').disabled=false;
+			document.getElementById('start-game').disabled = false;
 
-			// Pass roomId to index.js
 			window.roomId = roomId;
 		});
-
+		//valid room joining 
 		socket.on('joinedRoom', ({ roomId, state }) => {
 			document.getElementById('room-status').innerText = `Joined Room: ${roomId}`;
 		});
@@ -214,10 +252,20 @@
 		socket.on('roomError', (message) => {
 			document.getElementById('room-status').innerText = `Error: ${message}`;
 		});
+
+		// Tower Height Button Functionality
+		document.getElementById('set-tower-height-button').addEventListener('click', () => {
+			const towerHeight = document.getElementById('tower-height').value;
+			if (towerHeight < 5 || towerHeight > 15) {
+				alert('Please set a tower height between 5 and 15.');
+				return;
+			}
+			console.log(`Tower height set to ${towerHeight}`);
+			// Send tower height to the window 
+			window.baseHeight = towerHeight;
+		});
 	</script>
-	<script type="module" src="index.js"></script>
-
-
+	<script type="module" src="index.js"></script>  
 </body>
 
 </html>
