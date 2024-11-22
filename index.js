@@ -1,7 +1,7 @@
 import * as THREE from './node_modules/three/src/Three.js';
 import { ARButton } from 'three/examples/jsm/webxr/ARButton.js';
 import * as CANNON from 'cannon-es';
-
+import { XREstimatedLight } from 'three/examples/jsm/Addons.js';
 
 // Core variables
 let container, camera, scene, renderer;
@@ -14,9 +14,9 @@ let gameStarted = false;
 let lastCollapseCheckTime = 0;
 let basePosition;
 let isReady = false;
-let canMove = false;
+let canMove = false;  //for player-turn based movement
 let roomId = null;
-let messageVisible=false;
+let messageVisible = false;  //to prevent overwriting of the turn based pop up text
 
 // Emit readiness to the server
 
@@ -24,7 +24,7 @@ let messageVisible=false;
 let modalMesh; // Mesh for the modal
 let modalTextMesh; // Text mesh for the modal message
 
-// Function to create a modal in AR
+// Function to create a modal in AR which will be used to display messages (turn /won/loss)
 function createARModal(message) {
   if (modalMesh) {
     scene.remove(modalMesh);
@@ -35,7 +35,7 @@ function createARModal(message) {
 
   const modalGeometry = new THREE.PlaneGeometry(0.5, 0.3);
   const modalMaterial = new THREE.MeshBasicMaterial({
-    color: 0x222222,
+    color: 0x707070,
     transparent: true,
     opacity: 0.9,
   });
@@ -45,7 +45,8 @@ function createARModal(message) {
   camera.getWorldPosition(cameraPosition);
   const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   const modalPosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(1.5));
-  modalPosition.y += 0.3;
+  modalPosition.y += 0.8;
+  modalPosition.z += 0.5;
   modalMesh.position.copy(modalPosition);
   modalMesh.lookAt(cameraPosition);
   scene.add(modalMesh);
@@ -65,11 +66,15 @@ function createARModal(message) {
   const context = canvas.getContext("2d");
   canvas.width = 512;
   canvas.height = 256;
-  context.fillStyle = "white";
+  // Set background color
+  context.fillStyle = "#ffffff"; // Light gray to match the modal color
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Set text properties and draw the text
+  context.fillStyle = "black"; // Text color
   context.font = "bold 24px Arial";
   context.textAlign = "center";
   context.textBaseline = "middle";
-
   // Draw the two lines of text
   context.fillText(line1, canvas.width / 2, canvas.height / 2 - 20);
   if (line2) {
@@ -86,6 +91,8 @@ function createARModal(message) {
   modalTextMesh.lookAt(cameraPosition);
   scene.add(modalTextMesh);
 }
+
+
 // Function to remove the modal from the AR scene
 function removeARModal() {
   if (modalMesh) {
@@ -100,13 +107,15 @@ function removeARModal() {
 }
 
 let physicsEnabled = false;
-const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
+const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 }); //adding high friction so model remains stable
 
 // Connect to the WebSocket server
 // Connect to the WebSocket server
 
 
-const socket = io("https://ar-jenga-final.onrender.com");
+const socket = io("https://ar-jenga-final.onrender.com");   //change after deploying on render first 
+
+//called when player clicks on the ready button 
 function notifyReady() {
   if (!roomId) {
     console.error('Room ID is not set. Cannot notify readiness.');
@@ -119,6 +128,7 @@ function notifyReady() {
 // Handle connection
 let id = null;
 
+//establish a socket connection 
 socket.on('connect', () => {
   console.log('Connected to the server with ID:', socket.id);
   id = socket.id;
@@ -139,7 +149,7 @@ socket.on('start-game', ({ initialGameState, roomId: receivedRoomId }) => {
   // Sync the initial game state
 });
 
-let res = false;
+let res = false; //used to prevent multiple displays of text 
 socket.on('game-result', ({ message, roomId: receivedRoomId, playerId }) => {
   if (roomId !== receivedRoomId) return; // Ignore if not for the current room
 
@@ -194,7 +204,7 @@ socket.on('update-block', ({ blockData, roomId: receivedRoomId }) => {
   }
 });
 
-
+//whenever the turn is rotated 
 socket.on('turn-update', ({ currentTurn, roomId: receivedRoomId }) => {
   console.log("Turn update received for", currentTurn);
 
@@ -242,10 +252,9 @@ const cubeHeight = 0.05; // Height of the cuboid
 const spacing = 0.001; // Minimal spacing between layers
 const baseWidth = 0.1; // Base width of the cuboid
 const baseDepth = 3 * baseWidth + spacing; // Base depth of the cuboid
-const levels = 10; // Number of levels
+let levels = window.baseHeight; // Number of levels based on the user
 const clock = new THREE.Clock();
-let light;
-let selectedBlock = null;
+let selectedBlock = null;  //for movement and disabling physics for that object 
 let selectedBlockInitialQuaternion = null; // To store the block's orientation
 
 
@@ -281,19 +290,22 @@ function notifyBlockMovement(blockBody, blockIndex) {
 
   socket.emit('update-block', { roomId, blockData });
 }
+
+//whenever the user clicks to remove the ar message 
 function onControllerSelect() {
   if (messageVisible)
     removeARModal(); // Remove the AR modal
 }
 
+
 document.addEventListener('DOMContentLoaded', () => {
 
   const startButton1 = document.getElementById('start-game');
-
+  //done so user can enter AR only after he has clicked on start AR
   startButton1.addEventListener('click',
     () => {
 
-      roomId = window.roomId;
+      roomId = window.roomId;  //taking room id from window as changed in index.html
 
       // Ensure roomId is available
       if (!roomId) {
@@ -304,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       init();
       animate();
+      //adding the Ready? ar message when the model has loaded and notifies that the player is ready to start the game 
       function createStartButton() {
         // Create a floating panel for the button
         const geometry = new THREE.PlaneGeometry(0.4, 0.15);
@@ -311,10 +324,12 @@ document.addEventListener('DOMContentLoaded', () => {
           color: 0x44cc44,
           transparent: true,
           opacity: 0.8,
-          side: THREE.DoubleSide
+          roughness: 0.5, // Slightly shiny
+          metalness: 0.1, // Minimal metallic effect
+          side: THREE.DoubleSide,
         });
-
         startButton = new THREE.Mesh(geometry, material);
+
 
         // Add text to the button
         const canvas = document.createElement('canvas');
@@ -343,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
         startButton.add(textMesh);
 
 
-        // Add button to scene
+        // Adding the ready button to scene
         scene.add(startButton);
 
 
@@ -358,15 +373,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Create the scene
         scene = new THREE.Scene();
 
+        createStartButton(); //calling the ready button 
+        startButton.visible = false;  //setting it to false since we want it hidden till the user has loaded his model
+
         // Set up camera
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-        // Add light to the scene
-        // Create a directional light that casts shadows
-
-
-        // Enable shadow rendering in the renderer
-
 
         // Renderer setup
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -376,42 +387,71 @@ document.addEventListener('DOMContentLoaded', () => {
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows for better quality
         container.appendChild(renderer.domElement);
-        light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(0.5, 1, 0.25); // Position the light
-        light.castShadow = true; // Enable shadow casting
 
-        // Configure shadow properties for better quality
-        light.shadow.mapSize.width = 1024; // Shadow map resolution
-        light.shadow.mapSize.height = 1024;
-        light.shadow.camera.near = 0.5; // Near clipping plane
-        light.shadow.camera.far = 500; // Far clipping plane
+        //using xr estimated light so we can have better visuals 
+        const xrLight = new XREstimatedLight(renderer);
+        //event listmer for the estimated light 
+        xrLight.addEventListener('estimationstart', () => {
+          scene.add(xrLight);
+          if (xrLight.environment) {
+            scene.environment = xrLight.environment;
+          }
 
-        // Optional: Adjust the shadow camera bounds (useful for directional lights)
-        light.shadow.camera.left = -10;
-        light.shadow.camera.right = 10;
-        light.shadow.camera.top = 10;
-        light.shadow.camera.bottom = -10;
+        });
+        //adding a event listen to remove when the estimation has ended 
+        xrLight.addEventListener('estimationend', () => {
 
-        // Add the light to the scene
-        scene.add(light);
-        // Add AR button for WebXR
-        const arButton = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+          scene.remove(xrLight);
+          scene.environment = null;
+          // Add a fallback directional light
+          addFallbackLight();
+        });
+
+        //if the user does not have acess to xr estimated light as in laptop devices then we add a directional light 
+
+        //if it is not supported by user device
+        if (!xrLight.intensity) {
+          addFallbackLight();
+        }
+        function addFallbackLight() {
+          // Check if a fallback light already exists to avoid adding multiple lights
+          if (scene.getObjectByName("fallbackDirectionalLight")) {
+            return;
+          }
+
+          const fallbackLight = new THREE.DirectionalLight(0xffffff, 1.0);
+          fallbackLight.name = "fallbackDirectionalLight";
+          fallbackLight.position.set(5, 10, 5); // Position the light
+          fallbackLight.castShadow = true; // Enable shadows
+
+          // Set shadow properties for better quality
+          fallbackLight.shadow.mapSize.width = 1024;
+          fallbackLight.shadow.mapSize.height = 1024;
+          fallbackLight.shadow.camera.near = 0.5;
+          fallbackLight.shadow.camera.far = 50;
+
+          scene.add(fallbackLight);
+
+          console.log("Fallback directional light added");
+        }
+        // Add AR button for WebXR that takes hit-test and light estimation 
+        const arButton = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'], optionalFeatures: ['light-estimation'] });
         arButton.style.position = 'fixed';
         arButton.style.bottom = '10px';
         arButton.style.left = '50%';
         arButton.style.transform = 'translateX(-50%)';
         document.body.appendChild(arButton);
+        //done so user is directly redirected to AR 
         setTimeout(() => {
           arButton.click();
           console.log("AR button clicked programmatically.");
         }, 0);
 
-        createStartButton();
 
         // Reticle for hit-testing
         reticle = new THREE.Mesh(
           new THREE.RingGeometry(0.1, 0.15, 32).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+          new THREE.MeshBasicMaterial({ color: 0x00ff00 }) //green color reticle for block placement 
         );
         reticle.matrixAutoUpdate = false;
         reticle.visible = false;
@@ -420,14 +460,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set up the ground plane (visual and physics)
         const groundSize = 1.5;
         const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
-        const groundMaterial = new THREE.MeshBasicMaterial({
+        const groundMaterial = new THREE.MeshStandardMaterial({
           color: 0x008800,
           side: THREE.DoubleSide,
         });
         groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
-        groundMesh.rotation.x = -Math.PI / 2;
-        groundMesh.receiveShadow = true;
-        groundMesh.visible = false;
+        groundMesh.rotation.x = -Math.PI / 2;  //to make the ground flat
+        groundMesh.receiveShadow = true; //making it capable of recieving shadows 
+        groundMesh.visible = false;  //make it initially hidden till the user has loaded it 
         scene.add(groundMesh);
         const groundPhysicsMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
 
@@ -459,6 +499,9 @@ document.addEventListener('DOMContentLoaded', () => {
           })
         );
 
+
+        //loading the texture from the public folder 
+        //you can add any picture of your choice 
         const textureLoader = new THREE.TextureLoader();
         textureLoader.load('/wood.jpg', () => {
           blockTexture = textureLoader.load('/wood.jpg', () => { });
@@ -472,8 +515,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Set up the controller for interaction
         controller = renderer.xr.getController(0);
-        controller.addEventListener('select', onSelect);
-        controller.addEventListener("select", onControllerSelect); 
+        controller.addEventListener('select', onSelect);  //for placing reticle 
+        controller.addEventListener("select", onControllerSelect); //for the removal of the text message in the ar
         scene.add(controller);
 
         // Handle window resize
@@ -498,7 +541,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const displacementThreshold = 0.3; // Maximum distance a block can move before being considered "out of place"
         const rotationThreshold = 0.3; // Maximum quaternion deviation (angular threshold)
 
-        let collapsedCount = 0;
+        let collapsedCount = 0;  //counting no of collapsed blocks 
 
         // Iterate through all blocks
         for (let i = 0; i < cubes.length; i++) {
@@ -534,13 +577,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return collapseRatio > 0.3; // Adjust this value to control sensitivity
       }
 
-
+      //storing the tower state 
       function initializeTowerState() {
         for (let i = 0; i < cubeBodies.length; i++) {
           cubeBodies[i].initPosition = cubeBodies[i].position.clone(); // Store initial position
           cubeBodies[i].initQuaternion = cubeBodies[i].quaternion.clone(); // Store initial orientation
         }
       }
+      //checking if the tower is collapsed
+      //this must keep checking hence it is present in the animate function 
       function checkTowerState() {
         if (isTowerCollapsed()) {
           // Notify the server that the tower has collapsed with the player's ID
@@ -552,17 +597,19 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log("Tower has collapsed");
         }
       }
+
+      //highlighting the selected block
       function highlightBlock(block) {
         if (block) {
           if (!block.material.__originalColor) {
             // Store the original color only once
             block.material.__originalColor = block.material.color.clone();
           }
-          block.material.color.set(0x00FFFA); // Highlight with green color
+          block.material.color.set(0x00FFFA); // Highlight with a light blue colour
           block.material.needsUpdate = true;
         }
       }
-
+      //removing the highlight once the block movent was done 
       function resetHighlight(block) {
         if (block && block.material.__originalColor) {
           // Restore the original color
@@ -738,15 +785,20 @@ document.addEventListener('DOMContentLoaded', () => {
         touchStart = null;
       }
 
-
+      //for window resize 
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
 
+
+      //One of the main functions in this code
+      //used to generate the jenga tower at a particular position
+      //async function since time interval at each layer generation for a smooth animation 
       async function createLayersAtPosition(basePosition) {
         physicsEnabled = false; // Temporarily disable physics updates during creation
+        levels = window.baseHeight; // Number of levels
 
         for (let level = 0; level < levels; level++) {
           const cubeWidth = level % 2 === 0 ? baseWidth : baseDepth; // Alternate width
@@ -767,7 +819,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Create Three.js Mesh
-            console.log("Vls", blockTexture);
             const blockMaterial2 = new THREE.MeshStandardMaterial({
               map: blockTexture || null, // Use blockTexture if available, otherwise no texture
               color: blockTexture ? null : 0xB78319, // Fallback to blue if blockTexture is undefined
@@ -780,6 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Enable shadows for the cube
             cubeMesh.castShadow = true;
+            cubeMesh.receiveShadow = true; // The cube will receive shadows
 
             scene.add(cubeMesh);
             cubes.push(cubeMesh);
@@ -803,15 +855,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
           // Wait briefly before adding the next layer to ensure proper placement
           physicsEnabled = true;
-          await new Promise((resolve) => setTimeout(resolve, 500)); // Shorter delay for smoother stacking
+          await new Promise((resolve) => setTimeout(resolve, 300)); // Shorter delay for smoother stacking
         }
 
         // Re-enable physics after creation
         physicsEnabled = false;
+        startButton.visible = true; //making the start button visible after the tower has been loaded 
       }
 
 
-
+      
+      //for multiple placements of the tower 
       function placeTowerAtReticle(position) {
         // Clear the previous tower and related objects
         clearPreviousTower();
@@ -831,6 +885,7 @@ document.addEventListener('DOMContentLoaded', () => {
         basePosition = position;
       }
 
+      //removing a previous tower 
       function clearPreviousTower() {
         // Remove old cubes from the scene and world
         while (cubes.length > 0) {
@@ -851,6 +906,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
 
+      //handling user taps/clicks 
       function onSelect() {
         if (!gameStarted) {
           const raycaster = new THREE.Raycaster();
@@ -862,7 +918,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           const intersects = raycaster.intersectObject(startButton, true);
 
-          if (intersects.length > 0) {
+          if (intersects.length > 0) {  //done to check if the user has clicked on the ready? button indicating he is ready to start playing 
             gameStarted = true;
             startButton.visible = false;
             reticle.visible = false;
@@ -872,7 +928,7 @@ document.addEventListener('DOMContentLoaded', () => {
             notifyReady();
             return;
           }
-          if (reticle.visible) {
+          if (reticle.visible) {  //if the reticle is visible and the user has clicked then we load the jenga model and a plane below it 
             const position = new THREE.Vector3();
             const rotation = new THREE.Quaternion();
             const scale = new THREE.Vector3();
@@ -884,16 +940,14 @@ document.addEventListener('DOMContentLoaded', () => {
             groundBody.position.set(position.x, position.y - 0.01, position.z);
             groundBody.receiveShadow = true;
 
-            light.position.set(position.x, position.y + 5, position.z + 5);
-
-
             // Build the Jenga tower at the reticle position
             placeTowerAtReticle(position);
-            initializeTowerState();
+            initializeTowerState(); //loading the positions 
           }
         }
       }
 
+      //when a block is selected 
       function updateSelectedBlock() {
         // Ensure selectedBlock and selectedBlockInitialQuaternion are defined
         if (!selectedBlock || !selectedBlockInitialQuaternion) return;
@@ -919,7 +973,7 @@ document.addEventListener('DOMContentLoaded', () => {
           lastCollapseCheckTime += delta;
           if (lastCollapseCheckTime >= 1) {
             lastCollapseCheckTime = 0;
-            checkTowerState();
+            checkTowerState(); //constant check if the tower has collapsed 
           }
         }
 
