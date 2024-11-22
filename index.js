@@ -16,9 +16,88 @@ let basePosition;
 let isReady = false;
 let canMove = false;
 let roomId = null;
+let messageVisible=false;
 
 // Emit readiness to the server
 
+
+let modalMesh; // Mesh for the modal
+let modalTextMesh; // Text mesh for the modal message
+
+// Function to create a modal in AR
+function createARModal(message) {
+  if (modalMesh) {
+    scene.remove(modalMesh);
+    modalMesh = null;
+  }
+  messageVisible = true;
+
+
+  const modalGeometry = new THREE.PlaneGeometry(0.5, 0.3);
+  const modalMaterial = new THREE.MeshBasicMaterial({
+    color: 0x222222,
+    transparent: true,
+    opacity: 0.9,
+  });
+  modalMesh = new THREE.Mesh(modalGeometry, modalMaterial);
+
+  const cameraPosition = new THREE.Vector3();
+  camera.getWorldPosition(cameraPosition);
+  const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const modalPosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(1.5));
+  modalPosition.y += 0.3;
+  modalMesh.position.copy(modalPosition);
+  modalMesh.lookAt(cameraPosition);
+  scene.add(modalMesh);
+
+  // Split message into two lines dynamically
+  const maxCharsPerLine = 30; // Adjust this value based on canvas width
+  let line1 = message;
+  let line2 = "";
+
+  if (message.length > maxCharsPerLine) {
+    const breakIndex = message.lastIndexOf(" ", maxCharsPerLine); // Find the nearest space
+    line1 = message.slice(0, breakIndex);
+    line2 = message.slice(breakIndex + 1);
+  }
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = 512;
+  canvas.height = 256;
+  context.fillStyle = "white";
+  context.font = "bold 24px Arial";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  // Draw the two lines of text
+  context.fillText(line1, canvas.width / 2, canvas.height / 2 - 20);
+  if (line2) {
+    context.fillText(line2, canvas.width / 2, canvas.height / 2 + 20);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const textMaterial = new THREE.MeshBasicMaterial({ map: texture });
+  const textGeometry = new THREE.PlaneGeometry(0.4, 0.2);
+  modalTextMesh = new THREE.Mesh(textGeometry, textMaterial);
+
+  modalTextMesh.position.copy(modalMesh.position);
+  modalTextMesh.position.z += 0.01;
+  modalTextMesh.lookAt(cameraPosition);
+  scene.add(modalTextMesh);
+}
+// Function to remove the modal from the AR scene
+function removeARModal() {
+  if (modalMesh) {
+    scene.remove(modalMesh);
+    messageVisible = false;
+    modalMesh = null;
+  }
+  if (modalTextMesh) {
+    scene.remove(modalTextMesh);
+    modalTextMesh = null;
+  }
+}
 
 let physicsEnabled = false;
 const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
@@ -27,7 +106,7 @@ const blockMaterial = new CANNON.Material({ friction: 10.0, restitution: 0.0 });
 // Connect to the WebSocket server
 
 
-  const socket = io("http://localhost:3000/");
+const socket = io("https://ar-jenga-final.onrender.com");
 function notifyReady() {
   if (!roomId) {
     console.error('Room ID is not set. Cannot notify readiness.');
@@ -65,12 +144,18 @@ socket.on('game-result', ({ message, roomId: receivedRoomId, playerId }) => {
   if (roomId !== receivedRoomId) return; // Ignore if not for the current room
 
   if (!res) {
-    // Display the result with the player ID
-    alert(`Result: ${message}`);
+    // Show the AR modal instead of alert
+    if (messageVisible === true) {
+      removeARModal();
+    }
+    createARModal(message); // Display message with Player ID
     res = true;
   }
-  console.log(`Room: ${receivedRoomId}, Player ID: ${playerId}, Message: ${message}`); // Log for debugging
+
+  // Log the result for debugging purposes
+  console.log(`Room: ${receivedRoomId}, Player ID: ${playerId}, Message: ${message}`);
 });
+
 
 // Listen for block updates from the server
 socket.on('update-block', ({ blockData, roomId: receivedRoomId }) => {
@@ -111,7 +196,8 @@ socket.on('update-block', ({ blockData, roomId: receivedRoomId }) => {
 
 
 socket.on('turn-update', ({ currentTurn, roomId: receivedRoomId }) => {
-  console.log("gay",currentTurn);
+  console.log("Turn update received for", currentTurn);
+
   if (roomId !== receivedRoomId) {
     console.log(`Turn update ignored: Not for this room (received: ${receivedRoomId}, current: ${roomId})`);
     return; // Ignore if not for the current room
@@ -119,12 +205,25 @@ socket.on('turn-update', ({ currentTurn, roomId: receivedRoomId }) => {
 
   if (id === currentTurn) {
     // Allow the current player to move
+    if (canMove) return;
     canMove = true;
-    if (!res) alert('Your turn!');
+    if (!res) {
+      if (messageVisible === true) {
+        removeARModal();
+      }
+      createARModal("Your turn!");
+    }
+    console.log("YOUR TURN");
   } else {
     // Disable movement for non-current players
     canMove = false;
-    if (!res) alert('Waiting for the other player...');
+    if (!res) {
+      if (messageVisible === true) {
+        removeARModal();
+      }
+      createARModal("Waiting for the other player...");
+    }
+    console.log("Waiting for the other player's turn");
   }
 
   if (res) {
@@ -133,6 +232,7 @@ socket.on('turn-update', ({ currentTurn, roomId: receivedRoomId }) => {
 
   console.log(`Turn updated: Current turn for player ${currentTurn} in room ${roomId}`);
 });
+
 
 
 
@@ -181,7 +281,10 @@ function notifyBlockMovement(blockBody, blockIndex) {
 
   socket.emit('update-block', { roomId, blockData });
 }
-
+function onControllerSelect() {
+  if (messageVisible)
+    removeARModal(); // Remove the AR modal
+}
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -190,13 +293,13 @@ document.addEventListener('DOMContentLoaded', () => {
   startButton1.addEventListener('click',
     () => {
 
-      roomId=window.roomId;
+      roomId = window.roomId;
 
       // Ensure roomId is available
       if (!roomId) {
-          console.error('Room ID is not available. Ensure you have joined or created a room.');
+        console.error('Room ID is not available. Ensure you have joined or created a room.');
       } else {
-          console.log(`Using Room ID: ${roomId}`);
+        console.log(`Using Room ID: ${roomId}`);
       }
 
       init();
@@ -298,7 +401,10 @@ document.addEventListener('DOMContentLoaded', () => {
         arButton.style.left = '50%';
         arButton.style.transform = 'translateX(-50%)';
         document.body.appendChild(arButton);
-        
+        setTimeout(() => {
+          arButton.click();
+          console.log("AR button clicked programmatically.");
+        }, 0);
 
         createStartButton();
 
@@ -354,8 +460,8 @@ document.addEventListener('DOMContentLoaded', () => {
         );
 
         const textureLoader = new THREE.TextureLoader();
-        textureLoader.load('assets/wood.jpg', () => {
-          blockTexture = textureLoader.load('assets/wood.jpg', () => { });
+        textureLoader.load('/wood.jpg', () => {
+          blockTexture = textureLoader.load('/wood.jpg', () => { });
           console.log('Texture loaded successfully');
         }, undefined, (error) => {
           console.error('Error loading texture:', error);
@@ -367,6 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set up the controller for interaction
         controller = renderer.xr.getController(0);
         controller.addEventListener('select', onSelect);
+        controller.addEventListener("select", onControllerSelect); 
         scene.add(controller);
 
         // Handle window resize
@@ -438,8 +545,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isTowerCollapsed()) {
           // Notify the server that the tower has collapsed with the player's ID
           socket.emit('tower-collapsed', {
-            roomId, 
-            playerId: id, 
+            roomId,
+            playerId: id,
           });
 
           console.log("Tower has collapsed");
@@ -451,7 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Store the original color only once
             block.material.__originalColor = block.material.color.clone();
           }
-          block.material.color.set(0xffff33); // Highlight with green color
+          block.material.color.set(0x00FFFA); // Highlight with green color
           block.material.needsUpdate = true;
         }
       }
@@ -638,11 +745,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
 
-
-      function delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-      }
-
       async function createLayersAtPosition(basePosition) {
         physicsEnabled = false; // Temporarily disable physics updates during creation
 
@@ -719,7 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log('Tower placed at:', position);
         socket.emit('set-base-position', {
-          roomId, 
+          roomId,
           position: {
             x: position.x,
             y: position.y,
