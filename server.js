@@ -99,7 +99,7 @@ io.on('connection', (socket) => {
     console.log(position);
     if (player) {
       player.playerData.basePosition = position;
-      console.log(Player ${socket.id} base position set to, position);
+      console.log(`Player ${socket.id} base position set to, position`);
     }
   });
 
@@ -116,21 +116,21 @@ io.on('connection', (socket) => {
     const player = room.players.find((p) => p.playerData.name === socket.id);
     if (player) {
       player.playerData.ready = true;
-      console.log(Player ${socket.id} is ready in room ${roomId});
+      console.log(`Player ${socket.id} is ready in room ${roomId}`);
     } else {
-      console.warn(Player not found in room ${roomId} for socket ${socket.id});
+      console.warn(`Player not found in room ${roomId} for socket ${socket.id}`);
     }
   
     // Check if all players in the room are ready
     const allReady = room.players.every((p) => p.playerData.ready);
     if (allReady) {
       io.to(roomId).emit('start-game', room.getState().gameState);
-      console.log(All players are ready in room ${roomId}. Starting the game.);
+      console.log(`All players are ready in room ${roomId}. Starting the game.`);
   
       // Assign the first turn to the first player
       const firstPlayerId = room.players[0].playerData.name; // Use playerData.name for turn tracking
       io.emit('turn-update', { currentTurn: firstPlayerId, roomId });
-      console.log(First turn assigned to player: ${firstPlayerId} in room ${roomId});
+      console.log(`First turn assigned to player: ${firstPlayerId} in room ${roomId}`);
     }
   });
   
@@ -139,20 +139,20 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
   
     if (!room) {
-      console.warn(Room not found for roomId ${roomId});
+      console.warn(`Room not found for roomId ${roomId}`);
       return;
     }
   
     const player = room.players.find((p) => p.playerData.name === socket.id);
     if (!player) {
-      console.warn(Player with socket id ${socket.id} not found in room ${roomId});
+      console.warn(`Player with socket id ${socket.id} not found in room ${roomId}`);
       return;
     }
   
     const playerBasePosition = player.playerData.basePosition;
   
     if (!playerBasePosition) {
-      console.warn(Player ${socket.id} has no base position set.);
+      console.warn(`Player ${socket.id} has no base position set.`);
       return;
     }
   
@@ -176,7 +176,7 @@ io.on('connection', (socket) => {
       const nextPlayerIndex = (currentPlayerIndex + 1) % room.players.length;
       const nextPlayerId = room.players[nextPlayerIndex].playerData.name;
       io.emit('turn-update', { currentTurn: nextPlayerId, roomId });
-      console.log(Turn updated: Current turn for player ${nextPlayerId} in room ${roomId});
+      console.log(`Turn updated: Current turn for player ${nextPlayerId} in room ${roomId}`);
     }
   });
   
@@ -191,7 +191,7 @@ io.on('connection', (socket) => {
       return;
     }
   
-    console.log(Player ${playerId} caused the tower to collapse in room ${roomId});
+    console.log(`Player ${playerId} caused the tower to collapse in room ${roomId}`);
   
     // Notify the player who caused the collapse that they lost
     io.to(playerId).emit('game-result', {
@@ -228,12 +228,12 @@ io.on('connection', (socket) => {
     }
 
     if (roomId) {
-      console.log(Player ${socket.id} left room ${roomId});
+      console.log(`Player ${socket.id} left room ${roomId}`);
 
       // If the room is empty, delete it
       if (rooms.get(roomId).players.length === 0) {
         rooms.delete(roomId);
-        console.log(Room ${roomId} has been deleted);
+        console.log(`Room ${roomId} has been deleted`);
       } else {
         // Notify remaining players in the room
         socket.to(roomId).emit('playerDisconnected', socket.id);
@@ -245,5 +245,5 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(Server running on port ${PORT});
+  console.log(`Server running on port ${PORT}`);
 });
